@@ -24,7 +24,7 @@ async def retry_async(
         except retry_on:
             if attempt == attempts:
                 raise
-            delay = random.uniform(0, min(max_delay, base_delay * 2**attempt))  # noqa: S311
+            delay = random.uniform(0, min(max_delay, base_delay * 2**attempt))  # noqa: S311  # nosec B311
             await asyncio.sleep(delay)
     raise AssertionError("unreachable")
 

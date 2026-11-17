@@ -200,10 +200,19 @@ PYTHONPATH=libs:services/rag/src uv run uvicorn rag_service.main:create_service_
 
 ```python
 import time, jwt
+
 token = jwt.encode(
-    {"sub": "dr-1", "tenant_id": "clinic-a", "aud": "ai-api", "iss": "https://idp.local",
-     "exp": int(time.time()) + 3600, "scope": "rag:read rag:write"},
-    open("/tmp/priv.pem").read(), algorithm="RS256")
+    {
+        "sub": "dr-1",
+        "tenant_id": "clinic-a",
+        "aud": "ai-api",
+        "iss": "https://idp.local",
+        "exp": int(time.time()) + 3600,
+        "scope": "rag:read rag:write",
+    },
+    open("/tmp/priv.pem").read(),
+    algorithm="RS256",
+)
 print(token)
 ```
 
@@ -365,12 +374,23 @@ class MyVendorLLM:
         self._model = model
         ...
 
-    async def generate(self, messages: list[LLMMessage], *, model: str | None = None,
-                       temperature: float = 0.0, max_tokens: int | None = None) -> LLMResponse:
-        ...  # call the vendor, return LLMResponse(text=..., model=..., usage=Usage(input_tokens=..., output_tokens=...))
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        *,
+        model: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+    ) -> LLMResponse: ...  # call the vendor, return LLMResponse(text=..., model=..., usage=Usage(input_tokens=..., output_tokens=...))
 
-    async def stream(self, messages: list[LLMMessage], *, model: str | None = None,
-                     temperature: float = 0.0, max_tokens: int | None = None) -> AsyncIterator[str]:
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        *,
+        model: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[str]:
         ...
         yield "token "
 ```
@@ -388,6 +408,7 @@ class MyVendorLLM:
 
 ```python
 from aibase.testing.contracts import vectorstore_contract, cache_contract
+
 
 async def test_my_store_honours_the_port():
     await vectorstore_contract(MyVectorStore(...))
@@ -439,22 +460,29 @@ from aibase.providers.llm import LLMMessage
 router = APIRouter(prefix="/v1", tags=["billing"])
 input_guard = default_input_pipeline(max_chars=10_000)
 
+
 class CodeRequest(BaseModel):
     note: str = Field(min_length=1, max_length=10_000)
+
 
 class CodeResponse(BaseModel):
     codes: list[str]
 
+
 @router.post("/codes", response_model=CodeResponse)
 async def suggest_codes(
     body: CodeRequest,
-    principal: Principal = Depends(require_scopes("billing:run")),   # 1. auth + scope (principal.tenant_id available)
-    providers: Providers = Depends(get_providers),                    # 2. vendor-agnostic providers
+    principal: Principal = Depends(
+        require_scopes("billing:run")
+    ),  # 1. auth + scope (principal.tenant_id available)
+    providers: Providers = Depends(get_providers),  # 2. vendor-agnostic providers
     audit: AuditSink = Depends(get_audit),
 ) -> CodeResponse:
-    input_guard.enforce(body.note)                                    # 3. injection / length (raises 422)
-    reply = await providers.llm.generate([LLMMessage(role="user", content=body.note)])  # 4. PHI auto-redacted in/out
-    record_audit(audit, principal, "billing.codes")                   # 5. audit event (opaque IDs only)
+    input_guard.enforce(body.note)  # 3. injection / length (raises 422)
+    reply = await providers.llm.generate(
+        [LLMMessage(role="user", content=body.note)]
+    )  # 4. PHI auto-redacted in/out
+    record_audit(audit, principal, "billing.codes")  # 5. audit event (opaque IDs only)
     return CodeResponse(codes=reply.text.split(","))
 ```
 Checklist for every endpoint: scope, tenant scoping on any storage/vector access, input guardrail on user text,
@@ -476,10 +504,11 @@ Location: `services/<svc>/src/<pkg>/prompts/<prompt_name>/v1.j2` (Jinja2, undefi
 ```python
 from pathlib import Path
 from aibase.prompts import PromptRegistry
+
 PROMPTS = PromptRegistry(Path(__file__).parent / "prompts")
-p = PROMPTS.render("answer", sources=[...], question="...")      # latest version
+p = PROMPTS.render("answer", sources=[...], question="...")  # latest version
 p = PROMPTS.render("answer", "v1", sources=[...], question="...")  # pinned version
-p.text   # the rendered prompt;   p.tag -> "answer@v1#697c74f8" (name@version#content-hash)
+p.text  # the rendered prompt;   p.tag -> "answer@v1#697c74f8" (name@version#content-hash)
 ```
 - **Never edit a released version.** Copy to `v2.j2`, edit, ship; roll back by pinning `v1` or reverting.
 - Put `p.tag` into the audit event (`prompt_version=p.tag`) so any output can be traced to the exact prompt.
@@ -516,13 +545,17 @@ from aibase.providers.guarded import GuardedLLM
 from aibase.providers.llm.fake import FakeLLM
 from aibase.testing import SYNTHETIC_PHI, assert_no_phi, make_settings
 
-settings = make_settings()                      # env="test", ignores your .env
+settings = make_settings()  # env="test", ignores your .env
 providers = build_providers(settings)
-llm = FakeLLM("fixed reply")                    # or FakeLLM(lambda messages: "dynamic")
-providers.llm = GuardedLLM(llm, providers.phi)  # keep the PHI guard in the loop when testing PHI behaviour
+llm = FakeLLM("fixed reply")  # or FakeLLM(lambda messages: "dynamic")
+providers.llm = GuardedLLM(
+    llm, providers.phi
+)  # keep the PHI guard in the loop when testing PHI behaviour
 client = TestClient(create_service_app(settings, providers))
 ...
-assert_no_phi(" ".join(m.content for call in llm.calls for m in call))   # what the "vendor" actually received
+assert_no_phi(
+    " ".join(m.content for call in llm.calls for m in call)
+)  # what the "vendor" actually received
 ```
 - `FakeLLM.calls` records every prompt sent, so you can assert on what left the system.
 - Background jobs (transcription) need the client as a context manager: `with TestClient(app) as c:` so the event loop
@@ -570,7 +603,10 @@ Each record hashes the previous one. To verify integrity:
 ```python
 # PYTHONPATH=libs
 from aibase.audit import FileAuditSink
-print(FileAuditSink("./data/audit/audit.jsonl").verify())   # False if any line was edited or removed from the middle
+
+print(
+    FileAuditSink("./data/audit/audit.jsonl").verify()
+)  # False if any line was edited or removed from the middle
 ```
 This detects tampering; it does not prevent it. In production write to append-only/WORM storage or ship to your
 SIEM by implementing `AuditSink.write`.
