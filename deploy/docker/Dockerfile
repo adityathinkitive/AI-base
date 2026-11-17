@@ -1,5 +1,5 @@
 # Build from repo root:  docker build -f deploy/docker/Dockerfile --build-arg SERVICE=rag -t rag .
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv
 WORKDIR /app
@@ -8,7 +8,7 @@ COPY pyproject.toml uv.lock ./
 ARG EXTRAS=""
 RUN uv sync --frozen --no-dev --no-install-project ${EXTRAS}
 
-FROM python:3.12-slim
+FROM python:3.15-slim
 ARG SERVICE
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app
 COPY --from=builder /opt/venv /opt/venv
