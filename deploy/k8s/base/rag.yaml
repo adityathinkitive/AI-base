@@ -1,0 +1,105 @@
+# Reference manifest for ONE service (rag). Copy and rename per service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag
+  labels: {app: rag}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: rag}
+  template:
+    metadata:
+      labels: {app: rag}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: rag
+          image: registry.example.com/ai-base/rag:latest  # pin by digest in overlays
+          ports: [{containerPort: 8000}]
+          envFrom:
+            - secretRef: {name: rag-secrets}  # from your secret manager (External Secrets, CSI, ...)
+          env:
+            - {name: AIBASE_ENV, value: production}
+            - {name: AIBASE_SERVICE_NAME, value: rag}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          startupProbe:
+            httpGet: {path: /healthz, port: 8000}
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8000}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag
+spec:
+  selector: {app: rag}
+  ports: [{port: 80, targetPort: 8000}]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: rag}
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rag
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: rag}
+---
+# Default-deny egress; allow DNS, the OTel collector, and your LLM/vector-store endpoints only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rag
+spec:
+  podSelector:
+    matchLabels: {app: rag}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {name: ingress}
+      ports: [{port: 8000}]
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports: [{port: 53, protocol: UDP}]
+    - to:
+        - podSelector:
+            matchLabels: {app: otel-collector}
+      ports: [{port: 4318}]
+    # TODO: add the CIDR / private endpoint of your LLM and vector store providers.

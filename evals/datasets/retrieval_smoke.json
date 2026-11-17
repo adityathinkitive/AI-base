@@ -1,0 +1,15 @@
+{
+  "thresholds": {"precision@3": 0.3, "recall@3": 0.9, "mrr": 0.8},
+  "documents": [
+    {"id": "d1", "text": "Metformin is first line therapy for type 2 diabetes mellitus."},
+    {"id": "d2", "text": "Hypertension is managed with ACE inhibitors and lifestyle changes."},
+    {"id": "d3", "text": "Asthma exacerbations are treated with inhaled bronchodilators and corticosteroids."},
+    {"id": "d4", "text": "Warfarin dosing requires regular INR monitoring."}
+  ],
+  "cases": [
+    {"query": "first line therapy for type 2 diabetes", "relevant": ["d1"]},
+    {"query": "how is hypertension managed", "relevant": ["d2"]},
+    {"query": "treatment of asthma with bronchodilators", "relevant": ["d3"]},
+    {"query": "INR monitoring for warfarin", "relevant": ["d4"]}
+  ]
+}

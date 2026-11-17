@@ -1,0 +1,65 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: {enable-cache: true}
+      - run: uv sync --frozen
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run mypy libs/aibase
+      - run: uv run python scripts/check_boundaries.py
+      - run: uv run pytest --cov --cov-report=xml
+      - name: Eval gate (offline, fake providers)
+        run: PYTHONPATH=libs uv run python -m aibase.evals.run evals/datasets
+
+  # Proves each service is safely deletable: remove it, everything else must still pass.
+  deletability:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [preprocessing, rag, summarization, transcription, chatbot]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: rm -rf services/${{ matrix.service }}
+      - run: uv run python scripts/check_boundaries.py
+      - run: uv run pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: check
+    strategy:
+      matrix:
+        service: [preprocessing, rag, summarization, transcription, chatbot]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          build-args: SERVICE=${{ matrix.service }}
+          load: true
+          tags: ${{ matrix.service }}:ci
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.service }}:ci
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true

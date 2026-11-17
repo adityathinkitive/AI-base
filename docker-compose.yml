@@ -1,0 +1,53 @@
+# Local dev stack. Delete any service block you don't use. Production uses deploy/k8s.
+x-service: &service
+  env_file: [.env]
+  environment:
+    AIBASE_OTEL__ENDPOINT: http://otel-collector:4318/v1/traces
+    AIBASE_AUDIT__PATH: /var/audit/audit.jsonl
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  volumes: [audit:/var/audit]
+  depends_on: [otel-collector]
+
+services:
+  preprocessing:
+    <<: *service
+    build: {context: ., dockerfile: deploy/docker/Dockerfile, args: {SERVICE: preprocessing}}
+    ports: ["8001:8000"]
+  rag:
+    <<: *service
+    build: {context: ., dockerfile: deploy/docker/Dockerfile, args: {SERVICE: rag}}
+    ports: ["8002:8000"]
+  summarization:
+    <<: *service
+    build: {context: ., dockerfile: deploy/docker/Dockerfile, args: {SERVICE: summarization}}
+    ports: ["8003:8000"]
+  transcription:
+    <<: *service
+    build: {context: ., dockerfile: deploy/docker/Dockerfile, args: {SERVICE: transcription}}
+    ports: ["8004:8000"]
+    environment:
+      AIBASE_OTEL__ENDPOINT: http://otel-collector:4318/v1/traces
+      AIBASE_AUDIT__PATH: /var/audit/audit.jsonl
+      AIBASE_STORAGE__OPTIONS: '{"root":"/var/storage"}'
+    volumes: [audit:/var/audit, storage:/var/storage]
+  chatbot:
+    <<: *service
+    build: {context: ., dockerfile: deploy/docker/Dockerfile, args: {SERVICE: chatbot}}
+    ports: ["8005:8000"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    command: ["--config=/etc/otel.yaml"]
+    volumes: ["./deploy/otel-collector.yaml:/etc/otel.yaml:ro"]
+    # Point the exporter at any OTLP backend (Langfuse, Tempo, Jaeger, Datadog...) in otel-collector.yaml.
+
+  redis:
+    image: redis:7-alpine
+    profiles: [redis]  # docker compose --profile redis up; set AIBASE_CACHE__PROVIDER=redis
+
+volumes:
+  audit:
+  storage:

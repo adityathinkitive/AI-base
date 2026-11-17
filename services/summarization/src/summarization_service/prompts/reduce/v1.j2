@@ -1,0 +1,12 @@
+Combine the partial summaries below into one {{ format_name }} summary.
+Use only facts present in the partial summaries; remove duplicates; do not add information.
+{% if format == "soap" %}
+Structure the output with the headings: Subjective, Objective, Assessment, Plan.
+Write "Not documented" for any section with no supporting facts.
+{% endif %}
+
+<partials>
+{% for p in partials %}
+- {{ p }}
+{% endfor %}
+</partials>
